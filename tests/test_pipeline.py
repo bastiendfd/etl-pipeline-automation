@@ -124,3 +124,74 @@ def test_module_cli_reports_summary_and_writes_requested_outputs(tmp_path):
     assert result.returncode == 0
     assert json.loads(result.stdout) == {"input_rows": 1, "accepted_rows": 1, "rejected_rows": 0}
     assert clean.exists() and rejects.exists() and audit.exists()
+
+
+def test_run_pipeline_rejects_source_and_output_aliases_before_writing(tmp_path):
+    source = tmp_path / "input.csv"
+    source_contents = "record_id,customer,amount,event_date\n006,Ada,6.00,2025-01-19\n"
+    source.write_text(source_contents, encoding="utf-8")
+    clean = tmp_path / "nested" / ".." / "input.csv"
+    rejects = tmp_path / "rejects.csv"
+    audit = tmp_path / "audit.json"
+
+    try:
+        run_pipeline(source, clean, rejects, audit)
+    except ValueError as error:
+        assert str(error) == "input and clean output must be different paths"
+    else:
+        raise AssertionError("expected source/output path collision to be rejected")
+
+    assert source.read_text(encoding="utf-8") == source_contents
+    assert not rejects.exists()
+    assert not audit.exists()
+
+
+def test_run_pipeline_rejects_output_aliases_before_writing(tmp_path):
+    source = tmp_path / "input.csv"
+    write_csv(source, [{"record_id": "007", "customer": "Lin", "amount": "7.00", "event_date": "2025-01-20"}])
+    clean = tmp_path / "outputs" / "clean.csv"
+    rejects = tmp_path / "outputs" / "nested" / ".." / "clean.csv"
+    audit = tmp_path / "audit.json"
+
+    try:
+        run_pipeline(source, clean, rejects, audit)
+    except ValueError as error:
+        assert str(error) == "clean output and rejects output must be different paths"
+    else:
+        raise AssertionError("expected output/output path collision to be rejected")
+
+    assert not clean.exists()
+    assert not audit.exists()
+
+
+def test_module_cli_reports_path_collision_without_writing_outputs(tmp_path):
+    source = tmp_path / "input.csv"
+    source_contents = "record_id,customer,amount,event_date\n008,Mina,8.00,2025-01-21\n"
+    source.write_text(source_contents, encoding="utf-8")
+    rejects = tmp_path / "rejects.csv"
+    audit = tmp_path / "audit.json"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "etl_pipeline",
+            "--input",
+            str(source),
+            "--clean-output",
+            str(tmp_path / "nested" / ".." / "input.csv"),
+            "--rejects-output",
+            str(rejects),
+            "--audit-output",
+            str(audit),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert result.stderr == "etl-pipeline: input and clean output must be different paths\n"
+    assert source.read_text(encoding="utf-8") == source_contents
+    assert not rejects.exists()
+    assert not audit.exists()

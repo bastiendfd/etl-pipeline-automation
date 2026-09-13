@@ -20,6 +20,20 @@ def _write_rows(path: Path, fields: tuple[str, ...], rows: list[dict[str, str]])
         writer.writerows(rows)
 
 
+def _validate_distinct_paths(source: Path, clean_output: Path, rejects_output: Path, audit_output: Path) -> None:
+    """Reject canonical path aliases before opening or creating any pipeline file."""
+    paths = (
+        ("input", source.resolve()),
+        ("clean output", clean_output.resolve()),
+        ("rejects output", rejects_output.resolve()),
+        ("audit output", audit_output.resolve()),
+    )
+    for index, (left_name, left_path) in enumerate(paths):
+        for right_name, right_path in paths[index + 1 :]:
+            if left_path == right_path:
+                raise ValueError(f"{left_name} and {right_name} must be different paths")
+
+
 def _reject_reason(row: dict[str, str]) -> str | None:
     if not row["record_id"]:
         return "record_id is required"
@@ -46,6 +60,7 @@ def run_pipeline(source: Path, clean_output: Path, rejects_output: Path, audit_o
     Rows retain their input order. Every output file is rewritten on each run so the
     same input and paths produce the same contents.
     """
+    _validate_distinct_paths(source, clean_output, rejects_output, audit_output)
     with source.open(newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
         if reader.fieldnames is None or not set(INPUT_FIELDS).issubset(reader.fieldnames):
